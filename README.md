@@ -19,6 +19,11 @@ The network layout is:
 - NAT Gateway in public subnet 1 for private subnet outbound internet access
 - One route table for public subnets
 - One route table for private subnets
+- Resources that support tags use a `Name` tag with the `muyu` prefix
+
+> AWS creates a default route table with every VPC. This example does not use it.
+> Each subnet is explicitly associated with either the public route table or the
+> private route table so the routing decision is visible in Terraform.
 
 ```mermaid
 flowchart TB
@@ -62,3 +67,17 @@ terraform plan
 terraform apply
 terraform destroy
 ```
+
+## Security Scan
+
+Before applying infrastructure, create a Terraform plan and scan it with Checkov:
+
+```sh
+terraform plan -out tfplan.binary
+terraform show -json tfplan.binary > tfplan.json
+checkov -f tfplan.json
+```
+
+The scan reviews what Terraform is about to create, not only the `.tf` files.
+
+Do not commit `tfplan.binary` or `tfplan.json`; plan files can contain sensitive values.

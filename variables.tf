@@ -5,6 +5,13 @@ variable "aws_region" {
   type        = string
 }
 
+# Prefix used for resource Name tags in the AWS Console.
+variable "name_prefix" {
+  default     = "muyu"
+  description = "Prefix used to name teaching network resources"
+  type        = string
+}
+
 # Availability Zones used to place resources in more than one location.
 variable "availability_zone1" {
   default     = "us-east-1a"

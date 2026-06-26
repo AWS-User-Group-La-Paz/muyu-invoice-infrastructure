@@ -4,3 +4,7 @@
 # Local Terraform state files.
 terraform.tfstate
 terraform.tfstate.backup
+
+# Local Terraform plan files.
+tfplan.binary
+tfplan.json
