@@ -3,3 +3,4 @@
 terraform = "1.15.6"
 awscli = "2.35.9"
 checkov = "3.2.517"
+infracost = "0.10.44"

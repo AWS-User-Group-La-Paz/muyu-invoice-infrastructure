@@ -68,16 +68,35 @@ terraform apply
 terraform destroy
 ```
 
-## Security Scan
+## Terraform Plan File
 
-Before applying infrastructure, create a Terraform plan and scan it with Checkov:
+Some checks use the Terraform plan as input:
 
 ```sh
 terraform plan -out tfplan.binary
 terraform show -json tfplan.binary > tfplan.json
+```
+
+Do not commit `tfplan.binary` or `tfplan.json`; plan files can contain sensitive values.
+
+## Security Scan
+
+Scan the planned infrastructure with Checkov:
+
+```sh
 checkov -f tfplan.json
 ```
 
-The scan reviews what Terraform is about to create, not only the `.tf` files.
+## Cost Estimate
 
-Do not commit `tfplan.binary` or `tfplan.json`; plan files can contain sensitive values.
+Set the Infracost API key:
+
+```sh
+export INFRACOST_API_KEY="<your-api-key>"
+```
+
+Estimate the monthly cost of the planned infrastructure:
+
+```sh
+infracost breakdown --path tfplan.json
+```
