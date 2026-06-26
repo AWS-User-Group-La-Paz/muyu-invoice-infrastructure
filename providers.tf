@@ -10,15 +10,17 @@ terraform {
   }
 }
 
-# AWS credentials and region come from the local AWS CLI environment.
+# AWS credentials come from the local AWS CLI environment.
 provider "aws" {
+  region = var.aws_region
+
   # Default tags apply to future AWS resources that support tagging.
   default_tags {
     tags = {
       Project    = "Muyu"
       ManagedBy  = "Terraform"
       Repository = "muyu-infrastructure"
-      Owner      = "<your-name-here>"
+      Owner      = "AWS User Group La Paz"
     }
   }
 }
