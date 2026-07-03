@@ -57,3 +57,38 @@ variable "subnet_private2_cidr" {
   description = "The CIDR block to use in the private subnet 2"
   type        = string
 }
+
+variable "container_port" {
+  default     = 3000
+  description = "Port the invoice service container listens on"
+  type        = number
+}
+
+variable "image_tag" {
+  description = "Tag of the ECR image to run as the invoice service"
+  type        = string
+}
+
+variable "db_instance_class" {
+  default     = "db.t3.micro"
+  description = "Instance class for the RDS PostgreSQL server"
+  type        = string
+}
+
+variable "db_name" {
+  default     = "muyu"
+  description = "Name of the initial database created on the RDS instance"
+  type        = string
+}
+
+variable "db_username" {
+  default     = "muyu_admin"
+  description = "Master username for the RDS PostgreSQL server"
+  type        = string
+}
+
+variable "db_password" {
+  description = "Master password for the RDS PostgreSQL server"
+  type        = string
+  sensitive   = true
+}
