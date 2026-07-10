@@ -14,8 +14,8 @@ module "invoice_service" {
   priority              = 100
   image                 = "${aws_ecr_repository.main.repository_url}:${var.image_tag}"
   # image                 = "public.ecr.aws/q1v8x8d9/muyu:20260702"
-  container_name        = "invoice"
-  container_port        = var.container_port
+  container_name = "invoice"
+  container_port = var.container_port
 
   env_vars = {
     DATABASE_URL = "postgres://${var.db_username}:${var.db_password}@${aws_db_instance.main.address}:5432/${var.db_name}?sslmode=no-verify"
