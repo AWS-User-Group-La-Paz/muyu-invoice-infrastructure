@@ -1,3 +1,14 @@
+# Preserves existing web resources after making load balancing optional.
+moved {
+  from = aws_lb_target_group.this
+  to   = aws_lb_target_group.this[0]
+}
+
+moved {
+  from = aws_lb_listener_rule.this
+  to   = aws_lb_listener_rule.this[0]
+}
+
 # Lets ECS download container images and send container logs to CloudWatch.
 resource "aws_iam_role" "execution" {
   name = "${var.name_prefix}-${var.service_name}-execution-role"
@@ -43,11 +54,15 @@ resource "aws_security_group" "this" {
   name   = "${var.name_prefix}-${var.service_name}-sg"
   vpc_id = var.vpc_id
 
-  ingress {
-    from_port       = var.container_port
-    to_port         = var.container_port
-    protocol        = "tcp"
-    security_groups = [var.alb_security_group_id]
+  dynamic "ingress" {
+    for_each = var.enable_load_balancer ? [1] : []
+
+    content {
+      from_port       = var.container_port
+      to_port         = var.container_port
+      protocol        = "tcp"
+      security_groups = [var.alb_security_group_id]
+    }
   }
 
   egress {
@@ -64,6 +79,8 @@ resource "aws_security_group" "this" {
 
 # Registers private Fargate task IP addresses as load-balancer targets.
 resource "aws_lb_target_group" "this" {
+  count = var.enable_load_balancer ? 1 : 0
+
   name        = "${var.name_prefix}-${var.service_name}-tg"
   port        = var.container_port
   protocol    = "HTTP"
@@ -81,12 +98,14 @@ resource "aws_lb_target_group" "this" {
 
 # Routes this service's URL paths from the shared listener to its target group.
 resource "aws_lb_listener_rule" "this" {
+  count = var.enable_load_balancer ? 1 : 0
+
   listener_arn = var.listener_arn
   priority     = var.priority
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.this.arn
+    target_group_arn = aws_lb_target_group.this[0].arn
   }
 
   condition {
@@ -107,7 +126,7 @@ resource "aws_ecs_task_definition" "this" {
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([
-    {
+    merge({
       name      = var.container_name
       image     = var.image
       essential = true
@@ -129,7 +148,7 @@ resource "aws_ecs_task_definition" "this" {
           awslogs-stream-prefix = var.service_name
         }
       }
-    }
+    }, length(var.container_command) > 0 ? { command = var.container_command } : {})
   ])
 }
 
@@ -151,10 +170,14 @@ resource "aws_ecs_service" "this" {
     security_groups = [aws_security_group.this.id]
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.this.arn
-    container_name   = var.container_name
-    container_port   = var.container_port
+  dynamic "load_balancer" {
+    for_each = var.enable_load_balancer ? [1] : []
+
+    content {
+      target_group_arn = aws_lb_target_group.this[0].arn
+      container_name   = var.container_name
+      container_port   = var.container_port
+    }
   }
 
   depends_on = [aws_lb_listener_rule.this]

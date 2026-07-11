@@ -26,21 +26,31 @@ variable "private_subnet_ids" {
 variable "alb_security_group_id" {
   description = "Security group ID of the shared ALB, allowed to reach this service"
   type        = string
+  default     = null
 }
 
 variable "listener_arn" {
   description = "ARN of the shared ALB HTTP listener to attach this service's routing rule to"
   type        = string
+  default     = null
 }
 
 variable "path_pattern" {
   description = "Path patterns routed to this service on the shared listener"
   type        = list(string)
+  default     = []
 }
 
 variable "priority" {
   description = "Listener rule priority, must be unique across services sharing the listener"
   type        = number
+  default     = null
+}
+
+variable "enable_load_balancer" {
+  description = "Whether this service receives traffic through the shared ALB"
+  type        = bool
+  default     = true
 }
 
 variable "image" {
@@ -56,6 +66,12 @@ variable "container_name" {
 variable "container_port" {
   description = "Port the container listens on"
   type        = number
+}
+
+variable "container_command" {
+  description = "Optional command that replaces the image command"
+  type        = list(string)
+  default     = []
 }
 
 variable "cpu" {

@@ -18,3 +18,11 @@ run = """
 terraform plan -out tfplan.binary
 terraform show -json tfplan.binary > tfplan.json
 """
+
+[tasks.scan]
+description = "Scan the Terraform plan with the workshop Checkov policies"
+run = "checkov -f tfplan.json --config-file .checkov.yml"
+
+[tasks.cost]
+description = "Show hourly and monthly infrastructure costs"
+run = "infracost breakdown --config-file infracost.yml --fields hourlyCost,monthlyCost"

@@ -55,12 +55,12 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 6
         height = 6
         properties = {
-          title  = "Target 5XX Responses"
+          title  = "Successful Responses"
           region = var.aws_region
           view   = "timeSeries"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", module.cluster.alb_arn_suffix, { stat = "Sum" }]
+            ["AWS/ApplicationELB", "HTTPCode_Target_2XX_Count", "LoadBalancer", module.cluster.alb_arn_suffix, { stat = "Sum" }]
           ]
         }
       },
@@ -87,7 +87,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 24
         height = 1
         properties = {
-          markdown = "# 2. ECS Service"
+          markdown = "# 2. ECS Web App Service"
         }
       },
       {
@@ -97,7 +97,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 6
         height = 6
         properties = {
-          title  = "ECS CPU Use"
+          title  = "Web CPU Use"
           region = var.aws_region
           view   = "gauge"
           period = 60
@@ -119,7 +119,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 6
         height = 6
         properties = {
-          title  = "ECS Memory Use"
+          title  = "Web Memory Use"
           region = var.aws_region
           view   = "gauge"
           period = 60
@@ -141,7 +141,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 6
         height = 6
         properties = {
-          title  = "Running Tasks"
+          title  = "Running Web Tasks"
           region = var.aws_region
           view   = "singleValue"
           period = 60
@@ -157,7 +157,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 6
         height = 6
         properties = {
-          title  = "Desired Tasks"
+          title  = "Desired Web Tasks"
           region = var.aws_region
           view   = "singleValue"
           period = 60
@@ -167,19 +167,194 @@ resource "aws_cloudwatch_dashboard" "main" {
         }
       },
       {
-        type   = "text"
+        type   = "log"
         x      = 0
         y      = 14
         width  = 24
+        height = 8
+        properties = {
+          title  = "Web Service Logs"
+          region = var.aws_region
+          view   = "table"
+          query  = <<-QUERY
+            SOURCE '${module.invoice_service.log_group_name}'
+            | fields @timestamp, @message
+            | filter @message not like /path="\/health"/
+            | sort @timestamp desc
+            | limit 20
+          QUERY
+        }
+      },
+      {
+        type   = "text"
+        x      = 0
+        y      = 22
+        width  = 24
         height = 1
         properties = {
-          markdown = "# 3. PostgreSQL Database"
+          markdown = "# 3. Invoice Queue"
         }
       },
       {
         type   = "metric"
         x      = 0
-        y      = 15
+        y      = 23
+        width  = 8
+        height = 6
+        properties = {
+          title  = "Invoices Waiting Over Time"
+          region = var.aws_region
+          view   = "timeSeries"
+          period = 60
+          metrics = [
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.invoice_pdf_jobs.name, {
+              stat  = "Average"
+              label = "Waiting"
+            }]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 8
+        y      = 23
+        width  = 8
+        height = 6
+        properties = {
+          title     = "Invoices Waiting Now"
+          region    = var.aws_region
+          view      = "singleValue"
+          period    = 60
+          sparkline = true
+          metrics = [
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.invoice_pdf_jobs.name, {
+              stat  = "Average"
+              label = "Waiting"
+            }]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 16
+        y      = 23
+        width  = 8
+        height = 6
+        properties = {
+          title  = "Oldest Wait"
+          region = var.aws_region
+          view   = "singleValue"
+          period = 60
+          metrics = [
+            ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", aws_sqs_queue.invoice_pdf_jobs.name, {
+              stat  = "Maximum"
+              label = "Age"
+            }]
+          ]
+        }
+      },
+      {
+        type   = "text"
+        x      = 0
+        y      = 29
+        width  = 24
+        height = 1
+        properties = {
+          markdown = "# 4. ECS Worker Service"
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 30
+        width  = 8
+        height = 6
+        properties = {
+          title  = "Worker CPU Use"
+          region = var.aws_region
+          view   = "gauge"
+          period = 60
+          yAxis = {
+            left = {
+              min = 0
+              max = 100
+            }
+          }
+          metrics = [
+            ["AWS/ECS", "CPUUtilization", "ClusterName", module.cluster.cluster_name, "ServiceName", module.invoice_worker.service_name, { stat = "Average" }]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 8
+        y      = 30
+        width  = 8
+        height = 6
+        properties = {
+          title  = "Worker Memory Use"
+          region = var.aws_region
+          view   = "gauge"
+          period = 60
+          yAxis = {
+            left = {
+              min = 0
+              max = 100
+            }
+          }
+          metrics = [
+            ["AWS/ECS", "MemoryUtilization", "ClusterName", module.cluster.cluster_name, "ServiceName", module.invoice_worker.service_name, { stat = "Average" }]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 16
+        y      = 30
+        width  = 8
+        height = 6
+        properties = {
+          title  = "Running Worker Tasks"
+          region = var.aws_region
+          view   = "singleValue"
+          period = 60
+          metrics = [
+            ["ECS/ContainerInsights", "RunningTaskCount", "ClusterName", module.cluster.cluster_name, "ServiceName", module.invoice_worker.service_name, { stat = "Average" }]
+          ]
+        }
+      },
+      {
+        type   = "log"
+        x      = 0
+        y      = 36
+        width  = 24
+        height = 8
+        properties = {
+          title  = "Worker Service Logs"
+          region = var.aws_region
+          view   = "table"
+          query  = <<-QUERY
+            SOURCE '${module.invoice_worker.log_group_name}'
+            | fields @timestamp, @message
+            | sort @timestamp desc
+            | limit 20
+          QUERY
+        }
+      },
+      {
+        type   = "text"
+        x      = 0
+        y      = 44
+        width  = 24
+        height = 1
+        properties = {
+          markdown = "# 5. PostgreSQL Database"
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 45
         width  = 8
         height = 6
         properties = {
@@ -201,7 +376,7 @@ resource "aws_cloudwatch_dashboard" "main" {
       {
         type   = "metric"
         x      = 8
-        y      = 15
+        y      = 45
         width  = 8
         height = 6
         properties = {
@@ -217,7 +392,7 @@ resource "aws_cloudwatch_dashboard" "main" {
       {
         type   = "metric"
         x      = 16
-        y      = 15
+        y      = 45
         width  = 8
         height = 6
         properties = {
@@ -231,38 +406,10 @@ resource "aws_cloudwatch_dashboard" "main" {
         }
       },
       {
-        type   = "text"
+        type   = "log"
         x      = 0
-        y      = 21
+        y      = 51
         width  = 24
-        height = 1
-        properties = {
-          markdown = "# 4. Recent Logs"
-        }
-      },
-      {
-        type   = "log"
-        x      = 0
-        y      = 22
-        width  = 12
-        height = 8
-        properties = {
-          title  = "Invoice Service Logs"
-          region = var.aws_region
-          view   = "table"
-          query  = <<-QUERY
-            SOURCE '${module.invoice_service.log_group_name}'
-            | fields @timestamp, @message
-            | sort @timestamp desc
-            | limit 20
-          QUERY
-        }
-      },
-      {
-        type   = "log"
-        x      = 12
-        y      = 22
-        width  = 12
         height = 8
         properties = {
           title  = "PostgreSQL Logs"
