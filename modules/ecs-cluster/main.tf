@@ -1,7 +1,14 @@
+# Groups the Fargate services that belong to this deployment.
 resource "aws_ecs_cluster" "this" {
   name = "${var.name_prefix}-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enhanced"
+  }
 }
 
+# Permits internet users to reach the public load balancer on HTTP.
 resource "aws_security_group" "alb" {
   name   = "${var.name_prefix}-alb-sg"
   vpc_id = var.vpc_id
@@ -25,18 +32,21 @@ resource "aws_security_group" "alb" {
   }
 }
 
+# Distributes incoming HTTP requests across healthy ECS task IP addresses.
 resource "aws_lb" "this" {
-  name               = "${var.name_prefix}-alb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = var.public_subnet_ids
-  security_groups    = [aws_security_group.alb.id]
+  name                       = "${var.name_prefix}-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  subnets                    = var.public_subnet_ids
+  security_groups            = [aws_security_group.alb.id]
+  xff_header_processing_mode = "append"
 
   tags = {
     Name = "${var.name_prefix}-alb"
   }
 }
 
+# Receives HTTP requests and forwards matching paths to service target groups.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80

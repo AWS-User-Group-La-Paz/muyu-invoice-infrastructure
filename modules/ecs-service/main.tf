@@ -1,3 +1,4 @@
+# Lets ECS download container images and send container logs to CloudWatch.
 resource "aws_iam_role" "execution" {
   name = "${var.name_prefix}-${var.service_name}-execution-role"
 
@@ -11,11 +12,13 @@ resource "aws_iam_role" "execution" {
   })
 }
 
+# Attaches AWS-managed image-pull and log-publishing permissions to the execution role.
 resource "aws_iam_role_policy_attachment" "execution" {
   role       = aws_iam_role.execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Defines permissions available to code running inside the container.
 resource "aws_iam_role" "task" {
   name = "${var.name_prefix}-${var.service_name}-task-role"
 
@@ -29,11 +32,13 @@ resource "aws_iam_role" "task" {
   })
 }
 
+# Retains the service's container logs in CloudWatch for a limited period.
 resource "aws_cloudwatch_log_group" "this" {
   name              = "/ecs/${var.name_prefix}-${var.service_name}"
   retention_in_days = var.log_retention_days
 }
 
+# Allows only the shared ALB to connect to this service's container port.
 resource "aws_security_group" "this" {
   name   = "${var.name_prefix}-${var.service_name}-sg"
   vpc_id = var.vpc_id
@@ -57,6 +62,7 @@ resource "aws_security_group" "this" {
   }
 }
 
+# Registers private Fargate task IP addresses as load-balancer targets.
 resource "aws_lb_target_group" "this" {
   name        = "${var.name_prefix}-${var.service_name}-tg"
   port        = var.container_port
@@ -73,6 +79,7 @@ resource "aws_lb_target_group" "this" {
   }
 }
 
+# Routes this service's URL paths from the shared listener to its target group.
 resource "aws_lb_listener_rule" "this" {
   listener_arn = var.listener_arn
   priority     = var.priority
@@ -89,6 +96,7 @@ resource "aws_lb_listener_rule" "this" {
   }
 }
 
+# Describes the Fargate container image, resources, environment, and logging.
 resource "aws_ecs_task_definition" "this" {
   family                   = "${var.name_prefix}-${var.service_name}"
   requires_compatibilities = ["FARGATE"]
@@ -125,12 +133,18 @@ resource "aws_ecs_task_definition" "this" {
   ])
 }
 
+# Keeps the requested number of Fargate tasks running behind the target group.
 resource "aws_ecs_service" "this" {
   name            = "${var.name_prefix}-${var.service_name}"
   cluster         = var.cluster_id
   task_definition = aws_ecs_task_definition.this.arn
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets         = var.private_subnet_ids
@@ -146,4 +160,5 @@ resource "aws_ecs_service" "this" {
   depends_on = [aws_lb_listener_rule.this]
 }
 
+# Reads the configured AWS region for the CloudWatch log driver.
 data "aws_region" "current" {}
