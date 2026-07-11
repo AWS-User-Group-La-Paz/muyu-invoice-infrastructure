@@ -1,87 +1,133 @@
-# muyu-infrastructure
+# Muyu Infrastructure
 
-This repository contains infrastructure code for the Muyu application.
+Terraform configuration for a beginner-focused AWS deployment of the Muyu invoice service.
 
-AWS resources for Muyu are managed with Terraform. This repository creates the
-network foundation shown below.
+## Architecture
 
-## Network Architecture
-
-The network layout is:
-
-- Region: `us-east-1`
-- VPC: `10.10.0.0/16`
-- Public subnet 1: `10.10.10.0/24` in `us-east-1a`
-- Public subnet 2: `10.10.11.0/24` in `us-east-1b`
-- Private subnet 1: `10.10.20.0/24` in `us-east-1a`
-- Private subnet 2: `10.10.21.0/24` in `us-east-1b`
-- Internet Gateway for public subnet internet access
-- NAT Gateway in public subnet 1 for private subnet outbound internet access
-- One route table for public subnets
-- One route table for private subnets
-- Resources that support tags use a `Name` tag with the `muyu` prefix
-
-> AWS creates a default route table with every VPC. This example does not use it.
-> Each subnet is explicitly associated with either the public route table or the
-> private route table so the routing decision is visible in Terraform.
+The application runs on ECS Fargate behind a public load balancer, connects to a private PostgreSQL database, and reports logs and metrics to CloudWatch.
 
 ```mermaid
 flowchart TB
-    internet((Internet))
+    user((User))
+    ecr[ECR Repository]
+    dashboard[CloudWatch Dashboard]
 
-    subgraph vpc["VPC 10.10.0.0/16"]
-        igw["Internet Gateway"]
+    subgraph aws[AWS]
+        subgraph vpc[VPC 10.10.0.0/16]
+            subgraph public[Public Subnets]
+                alb[Application Load Balancer]
+                nat[NAT Gateway]
+            end
 
-        subgraph public["Public subnets"]
-            public1["Public subnet 1<br/>10.10.10.0/24<br/>us-east-1a"]
-            public2["Public subnet 2<br/>10.10.11.0/24<br/>us-east-1b"]
-            nat["NAT Gateway<br/>Elastic IP"]
+            subgraph private[Private Subnets]
+                ecs[ECS Fargate Service]
+                rds[(PostgreSQL RDS)]
+            end
         end
 
-        subgraph private["Private subnets"]
-            private1["Private subnet 1<br/>10.10.20.0/24<br/>us-east-1a"]
-            private2["Private subnet 2<br/>10.10.21.0/24<br/>us-east-1b"]
-        end
-
-        public_rt["Public route table<br/>0.0.0.0/0 -> Internet Gateway"]
-        private_rt["Private route table<br/>0.0.0.0/0 -> NAT Gateway"]
+        logs[CloudWatch Logs]
+        insights[Container Insights and RDS Monitoring]
     end
 
-    internet --- igw
-    igw --- public_rt
-    public_rt --- public1
-    public_rt --- public2
-    public1 --- nat
-    nat --- private_rt
-    private_rt --- private1
-    private_rt --- private2
+    user -->|HTTP| alb
+    alb -->|Healthy targets| ecs
+    ecs --> rds
+    ecr -->|Container image| ecs
+    ecs --> logs
+    rds --> logs
+    ecs --> insights
+    rds --> insights
+    logs --> dashboard
+    insights --> dashboard
 ```
+
+## Network
+
+| Resource | Configuration |
+|---|---|
+| Region | `us-east-1` |
+| VPC | `10.10.0.0/16` |
+| Public subnet 1 | `10.10.10.0/24` in `us-east-1a` |
+| Public subnet 2 | `10.10.11.0/24` in `us-east-1b` |
+| Private subnet 1 | `10.10.20.0/24` in `us-east-1a` |
+| Private subnet 2 | `10.10.21.0/24` in `us-east-1b` |
+
+The public subnets route through the Internet Gateway. The private subnets share one NAT Gateway for outbound internet access.
+
+The RDS security group accepts PostgreSQL traffic only from the ECS service security group. The ECS service accepts application traffic only from the load balancer security group.
+
+## Application
+
+The number of Fargate tasks is configured with `invoice_desired_count`. The load balancer checks `GET /health`, and the ECS deployment circuit breaker automatically rolls back failed deployments.
+
+The load balancer appends the original client address to the `X-Forwarded-For` header.
+
+## Container Registry
+
+The ECR repository uses immutable image tags and disables scan-on-push for this teaching deployment.
+
+Its lifecycle policy:
+
+- Deletes untagged images after one day
+- Retains the ten newest tagged images
+- Deletes remaining images when the Terraform deployment is destroyed
+
+Push the image tag configured by `image_tag` before deploying the ECS service.
+
+## Database
+
+The deployment creates a private PostgreSQL 15 RDS instance with:
+
+- Enhanced Monitoring every 60 seconds
+- CloudWatch Database Insights Standard mode
+- PostgreSQL and upgrade logs exported to CloudWatch
+- Three-day CloudWatch log retention
+
+This is a cost-focused teaching database. Multi-AZ and final snapshots are intentionally disabled.
+
+## Observability
+
+The CloudWatch dashboard has separate sections for incoming requests, ECS, RDS, application logs, and PostgreSQL logs. ECS Container Insights uses enhanced observability.
+
+## Requirements
+
+Tool versions are managed by [mise](https://mise.jdx.dev/). AWS credentials must be available through the AWS CLI environment.
+
+```sh
+mise install
+aws sts get-caller-identity
+```
+
+## Configuration
+
+Update `terraform.tfvars` before deploying:
+
+```hcl
+name_prefix           = "student-muyu"
+db_password           = "replace-with-a-password"
+image_tag             = "v2026.07.02-r55.1"
+invoice_desired_count = 1
+```
+
+Use a prefix containing lowercase letters, numbers, and hyphens. Do not use the literal `<your-name>` placeholder because AWS resource names do not accept angle brackets.
+
+The password is intentionally supplied directly for this beginner exercise. Production deployments should use AWS Secrets Manager rather than storing credentials in Terraform variables or ECS task definitions.
 
 ## Terraform Workflow
 
 ```sh
-terraform init
-terraform fmt
-terraform validate
-terraform plan
-terraform apply
-terraform destroy
+terraform init                 # Initialize the working directory
+mise run check                 # Check formatting and configuration
+mise run plan                  # Create tfplan.binary and tfplan.json
+terraform show tfplan.binary   # Review the saved plan
+terraform apply tfplan.binary  # Apply the reviewed plan
+terraform output               # Display the deployed endpoints
+terraform destroy              # Destroy the teaching deployment
 ```
 
-## Terraform Plan File
-
-Some checks use the Terraform plan as input:
-
-```sh
-terraform plan -out tfplan.binary
-terraform show -json tfplan.binary > tfplan.json
-```
-
-Do not commit `tfplan.binary` or `tfplan.json`; plan files can contain sensitive values.
+Plan files can contain sensitive values and are excluded from Git.
 
 ## Security Scan
-
-Scan the planned infrastructure with Checkov:
 
 ```sh
 checkov -f tfplan.json
@@ -89,14 +135,7 @@ checkov -f tfplan.json
 
 ## Cost Estimate
 
-Set the Infracost API key:
-
 ```sh
 export INFRACOST_API_KEY="<your-api-key>"
-```
-
-Estimate the monthly cost of the planned infrastructure:
-
-```sh
 infracost breakdown --path tfplan.json
 ```

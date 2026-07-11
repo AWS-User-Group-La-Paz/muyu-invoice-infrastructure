@@ -1,3 +1,4 @@
+# Creates the shared ECS cluster, public load balancer, and HTTP listener.
 module "cluster" {
   source = "./modules/ecs-cluster"
 
