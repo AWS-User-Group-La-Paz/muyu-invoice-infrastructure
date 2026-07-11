@@ -1,0 +1,16 @@
+framework:
+  - terraform_plan
+
+check:
+  - CKV_AWS_16
+  - CKV_AWS_17
+  - CKV_AWS_27
+  - CKV_AWS_51
+  - CKV_AWS_62
+  - CKV_AWS_63
+  - CKV_AWS_333
+  - CKV2_AWS_6
+
+quiet: true
+compact: true
+skip-download: true

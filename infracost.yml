@@ -1,0 +1,5 @@
+version: "0.1"
+
+projects:
+  - path: tfplan.json
+    name: muyu-workshop

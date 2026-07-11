@@ -8,16 +8,19 @@ resource "aws_db_subnet_group" "main" {
   }
 }
 
-# Allows PostgreSQL access only from the ECS tasks that run the invoice service.
+# Allows PostgreSQL access only from the web and worker ECS tasks.
 resource "aws_security_group" "rds" {
   name   = "${var.name_prefix}-rds-sg"
   vpc_id = aws_vpc.main.id
 
   ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [module.invoice_service.security_group_id]
+    from_port = 5432
+    to_port   = 5432
+    protocol  = "tcp"
+    security_groups = [
+      module.invoice_service.security_group_id,
+      module.invoice_worker.security_group_id,
+    ]
   }
 
   egress {
@@ -71,6 +74,7 @@ resource "aws_db_instance" "main" {
   engine_version                  = "15"
   instance_class                  = var.db_instance_class
   allocated_storage               = 20
+  storage_encrypted               = true
   db_name                         = var.db_name
   username                        = var.db_username
   password                        = var.db_password

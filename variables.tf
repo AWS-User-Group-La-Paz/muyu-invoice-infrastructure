@@ -81,6 +81,12 @@ variable "image_tag" {
   type        = string
 }
 
+# Selects the verified SES address used to send generated invoices.
+variable "email_from" {
+  description = "Verified SES sender used by the invoice worker"
+  type        = string
+}
+
 # Chooses the RDS instance size, which controls database cost and capacity.
 variable "db_instance_class" {
   default     = "db.t3.micro"
