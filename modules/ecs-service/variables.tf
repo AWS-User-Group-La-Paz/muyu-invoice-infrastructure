@@ -30,7 +30,7 @@ variable "alb_security_group_id" {
 }
 
 variable "listener_arn" {
-  description = "ARN of the shared ALB HTTP listener to attach this service's routing rule to"
+  description = "ARN of the shared ALB listener to attach this service's routing rule to"
   type        = string
   default     = null
 }
@@ -108,4 +108,18 @@ variable "env_vars" {
   description = "Environment variables injected into the container"
   type        = map(string)
   default     = {}
+}
+
+variable "otel_collector" {
+  description = "Optional OpenTelemetry Collector sidecar configuration for task-local OTLP/HTTP logs and traces"
+  type = object({
+    image                 = string
+    grafana_otlp_endpoint = string
+    grafana_otlp_username = string
+    config_parameter_arn  = string
+    token_parameter_arn   = string
+    otel_service_name     = string
+    metrics_endpoint      = string
+  })
+  default = null
 }

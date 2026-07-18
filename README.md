@@ -9,7 +9,7 @@ The web application runs on ECS Fargate behind a public load balancer and queues
 ```mermaid
 flowchart TB
     user((User))
-    ecr[ECR Repository]
+    ghcr[GitHub Container Registry]
     queue[SQS Queue]
     bucket[(S3 PDF Bucket)]
     email[SES]
@@ -33,7 +33,7 @@ flowchart TB
         insights[Container Insights and RDS Monitoring]
     end
 
-    user -->|HTTP| alb
+    user -->|HTTPS| alb
     alb -->|Healthy targets| web
     web --> queue
     queue --> worker
@@ -43,8 +43,8 @@ flowchart TB
     web --> bucket
     worker --> email
     email --> user
-    ecr -->|Container image| web
-    ecr -->|Container image| worker
+    ghcr -->|Container image| web
+    ghcr -->|Container image| worker
     web --> logs
     worker --> logs
     rds --> logs
@@ -54,6 +54,8 @@ flowchart TB
     logs --> dashboard
     insights --> dashboard
 ```
+
+Route 53 serves the participant subdomain and points it to the Application Load Balancer. ACM provides the TLS certificate. The load balancer redirects HTTP requests to HTTPS.
 
 ## Network
 
@@ -80,13 +82,7 @@ The load balancer appends the original client address to the `X-Forwarded-For` h
 
 ## Container Registry
 
-The ECR repository uses immutable image tags and disables scan-on-push for this teaching deployment.
-
-Its lifecycle policy:
-
-- Deletes untagged images after one day
-- Retains the ten newest tagged images
-- Deletes remaining images when the Terraform deployment is destroyed
+Both ECS services pull `ghcr.io/aws-user-group-la-paz/muyu-invoice-generator` using the configured `image_tag`.
 
 ## Database
 
@@ -111,6 +107,10 @@ While the account remains in the SES sandbox, sender and recipient identities mu
 
 The CloudWatch dashboard has separate sections for incoming requests, the ECS web application, the invoice queue, the ECS worker, and PostgreSQL. Each service section includes its own metrics and logs. ECS Container Insights uses enhanced observability.
 
+Each ECS task also runs an OpenTelemetry Collector sidecar. The application sends OTLP/HTTP logs and traces to the task-local collector at `127.0.0.1:4318`; the collector batches and retries delivery to Grafana Cloud. Add `grafana_otlp_endpoint` and `grafana_otlp_username` to `terraform.tfvars`.
+
+The bootstrap step creates the `/\<name-prefix\>/grafana/otlp/token` SSM SecureString with a placeholder. Replace it with the Grafana write token before deploying the infrastructure so the collectors start with valid credentials.
+
 ## Requirements
 
 Tool versions are managed by [mise](https://mise.jdx.dev/). AWS credentials must be available through the AWS CLI environment.
@@ -125,11 +125,14 @@ aws sts get-caller-identity
 Update `terraform.tfvars` before deploying:
 
 ```hcl
+domain                = "yamil.muyuinvoices.click"
 name_prefix           = "student-muyu"
 db_password           = "replace-with-a-password"
 image_tag             = "v2026.07.02-r55.1"
 invoice_desired_count = 1
 email_from             = "verified-sender@example.com"
+grafana_otlp_endpoint = "<grafana-otlp-endpoint>"
+grafana_otlp_username = "<grafana-instance-id>"
 ```
 
 Use a prefix containing lowercase letters, numbers, and hyphens. Do not use the literal `<your-name>` placeholder because AWS resource names do not accept angle brackets.
@@ -138,101 +141,42 @@ The password is intentionally supplied directly for this beginner exercise. Prod
 
 ## Staged Deployment
 
-The workshop uses targeted Terraform applies so participants can inspect each infrastructure layer before introducing the next one.
+Only resources requiring external verification are deployed separately. Terraform handles the remaining dependency order during the final untargeted apply.
 
-Terraform warns that targeted applies can omit unrelated resources. This is intentional during the workshop; the final stage always runs an untargeted plan.
-
-### 1. Bootstrap ECR and SES
+### 1. Bootstrap external requirements
 
 ```sh
 terraform init
 
 terraform apply \
-  -target=aws_ecr_repository.main \
-  -target=aws_sesv2_email_identity.invoice_sender
+  -target=aws_route53_zone.domain \
+  -target=aws_sesv2_email_identity.invoice_sender \
+  -target=aws_ssm_parameter.grafana_otlp_token
+
+terraform output -json name_servers
 ```
 
-Confirm the SES verification email.
-
-Build and push the application image:
+Provide the displayed nameservers to the administrator of `muyuinvoices.click`, confirm the SES verification email, and wait until the DNS delegation is visible:
 
 ```sh
-ECR_REPO="$(terraform output -raw ecr_repo_url)"
-
-aws ecr get-login-password --region us-east-1 \
-  | docker login \
-      --username AWS \
-      --password-stdin "$ECR_REPO"
-
-docker build \
-  --tag "$ECR_REPO:<image-tag>" \
-  ../muyu-invoice-generator
-
-docker push "$ECR_REPO:<image-tag>"
+dig NS yamil.muyuinvoices.click +short
 ```
 
-Replace `<image-tag>` with the `image_tag` value from `terraform.tfvars`.
-
-### 2. Deploy the network
+Replace the Grafana token placeholder:
 
 ```sh
-terraform apply \
-  -target=aws_route.public_internet \
-  -target=aws_route.private_nat \
-  -target=aws_route_table_association.public1 \
-  -target=aws_route_table_association.public2 \
-  -target=aws_route_table_association.private1 \
-  -target=aws_route_table_association.private2
+aws ssm put-parameter \
+  --name "/student-muyu/grafana/otlp/token" \
+  --type SecureString \
+  --value "<grafana-write-token>" \
+  --overwrite
 ```
 
-Inspect the VPC, public and private subnets, gateways, and route tables.
+Do not continue until DNS delegation and SES verification are complete and the Grafana token has been replaced.
 
-### 3. Deploy the platform and database
+### 2. Deploy the infrastructure
 
-```sh
-terraform apply \
-  -target=module.cluster \
-  -target=aws_ecr_lifecycle_policy.main \
-  -target=aws_db_instance.main
-```
-
-Inspect the ECS cluster, load balancer, RDS instance, security groups, and database logs. Terraform may create ECS security groups during this stage because RDS references them.
-
-### 4. Deploy the queue and PDF storage
-
-```sh
-terraform apply \
-  -target=aws_sqs_queue.invoice_pdf_jobs \
-  -target=aws_s3_bucket_public_access_block.invoice_pdfs
-```
-
-Inspect the encrypted SQS queue and private S3 bucket. The public-access-block target includes its bucket dependency.
-
-### 5. Deploy IAM permissions
-
-Create the task roles and attach their application permissions before starting the services:
-
-```sh
-terraform apply \
-  -target=aws_iam_role_policy.invoice_web \
-  -target=aws_iam_role_policy.invoice_worker
-```
-
-Terraform creates the web and worker task roles as dependencies of these policies. Inspect the web permissions for SQS and S3, and the worker permissions for SQS, S3, and `ses:SendRawEmail`.
-
-### 6. Deploy the web and worker services
-
-```sh
-terraform apply \
-  -target=module.invoice_service \
-  -target=module.invoice_worker
-```
-
-Inspect the separate ECS services, task definitions, security groups, and CloudWatch log groups.
-
-### 7. Run the complete plan
-
-Run the untargeted validation, security scan, cost estimate, and final apply:
+The untargeted apply creates the certificate and its validation record, waits for ACM validation, and then creates the network, database, load balancer, DNS alias, queues, storage, IAM permissions, and ECS services in dependency order.
 
 ```sh
 mise run check
@@ -244,13 +188,15 @@ mise run cost
 terraform apply tfplan.binary
 ```
 
-For this three-hour workshop:
+### 3. Verify operational readiness
 
-```text
-estimated workshop baseline = total hourly cost × 3
+Confirm HTTP redirects to the HTTPS subdomain:
+
+```sh
+terraform output -raw alb_dns_name
+curl --head http://yamil.muyuinvoices.click
+curl --head https://yamil.muyuinvoices.click
 ```
-
-### 8. Verify operational readiness
 
 Submit a new invoice and verify:
 
@@ -264,7 +210,7 @@ Submit a new invoice and verify:
 
 A failed invoice is terminal and its queue message is deleted. Submit a new invoice after correcting a failed deployment or permission.
 
-### 9. Destroy the workshop environment
+### 4. Destroy the workshop environment
 
 ```sh
 terraform destroy
