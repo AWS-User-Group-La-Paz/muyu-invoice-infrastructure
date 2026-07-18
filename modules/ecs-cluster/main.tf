@@ -8,7 +8,7 @@ resource "aws_ecs_cluster" "this" {
   }
 }
 
-# Permits internet users to reach the public load balancer on HTTP.
+# Permits internet users to reach the public load balancer on HTTP and HTTPS.
 resource "aws_security_group" "alb" {
   name   = "${var.name_prefix}-alb-sg"
   vpc_id = var.vpc_id
@@ -16,6 +16,13 @@ resource "aws_security_group" "alb" {
   ingress {
     from_port   = 80
     to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -46,11 +53,30 @@ resource "aws_lb" "this" {
   }
 }
 
-# Receives HTTP requests and forwards matching paths to service target groups.
+# Redirects HTTP requests to HTTPS.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# Terminates TLS and forwards matching paths to service target groups.
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = 443
+  protocol          = "HTTPS"
+  certificate_arn   = var.certificate_arn
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
   default_action {
     type = "fixed-response"

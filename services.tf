@@ -9,20 +9,32 @@ module "invoice_service" {
   vpc_id                = aws_vpc.main.id
   private_subnet_ids    = [aws_subnet.private1.id, aws_subnet.private2.id]
   alb_security_group_id = module.cluster.alb_security_group_id
-  listener_arn          = module.cluster.http_listener_arn
+  listener_arn          = module.cluster.https_listener_arn
   path_pattern          = ["/*"]
   health_check_path     = "/health"
   priority              = 100
-  image                 = "${aws_ecr_repository.main.repository_url}:${var.image_tag}"
+  image                 = "ghcr.io/aws-user-group-la-paz/muyu-invoice-generator:${var.image_tag}"
   container_name        = "invoice"
   container_port        = var.container_port
 
+  otel_collector = {
+    image                 = var.otel_collector_image
+    grafana_otlp_endpoint = var.grafana_otlp_endpoint
+    grafana_otlp_username = var.grafana_otlp_username
+    config_parameter_arn  = aws_ssm_parameter.grafana_collector_config.arn
+    token_parameter_arn   = aws_ssm_parameter.grafana_otlp_token.arn
+    otel_service_name     = "muyu-web"
+    metrics_endpoint      = "127.0.0.1:${var.container_port}"
+  }
+
   env_vars = {
-    NODE_ENV      = "production"
-    AWS_REGION    = var.aws_region
-    SQS_QUEUE_URL = aws_sqs_queue.invoice_pdf_jobs.url
-    S3_BUCKET     = aws_s3_bucket.invoice_pdfs.bucket
-    DATABASE_URL  = "postgres://${var.db_username}:${var.db_password}@${aws_db_instance.main.address}:5432/${var.db_name}?sslmode=no-verify"
+    NODE_ENV                 = "production"
+    AWS_REGION               = var.aws_region
+    OTEL_SERVICE_NAME        = "muyu-web"
+    OTEL_RESOURCE_ATTRIBUTES = "deployment.environment=workshop,service.version=${var.image_tag},cloud.provider=aws,cloud.region=${var.aws_region}"
+    SQS_QUEUE_URL            = aws_sqs_queue.invoice_pdf_jobs.url
+    S3_BUCKET                = aws_s3_bucket.invoice_pdfs.bucket
+    DATABASE_URL             = "postgres://${var.db_username}:${var.db_password}@${aws_db_instance.main.address}:5432/${var.db_name}?sslmode=no-verify"
   }
 }
 
@@ -37,17 +49,29 @@ module "invoice_worker" {
   vpc_id               = aws_vpc.main.id
   private_subnet_ids   = [aws_subnet.private1.id, aws_subnet.private2.id]
   enable_load_balancer = false
-  image                = "${aws_ecr_repository.main.repository_url}:${var.image_tag}"
+  image                = "ghcr.io/aws-user-group-la-paz/muyu-invoice-generator:${var.image_tag}"
   container_name       = "invoice-worker"
   container_port       = var.container_port
   container_command    = ["node", "src/worker.js"]
 
+  otel_collector = {
+    image                 = var.otel_collector_image
+    grafana_otlp_endpoint = var.grafana_otlp_endpoint
+    grafana_otlp_username = var.grafana_otlp_username
+    config_parameter_arn  = aws_ssm_parameter.grafana_collector_config.arn
+    token_parameter_arn   = aws_ssm_parameter.grafana_otlp_token.arn
+    otel_service_name     = "muyu-worker"
+    metrics_endpoint      = "127.0.0.1:9464"
+  }
+
   env_vars = {
-    NODE_ENV      = "production"
-    AWS_REGION    = var.aws_region
-    SQS_QUEUE_URL = aws_sqs_queue.invoice_pdf_jobs.url
-    S3_BUCKET     = aws_s3_bucket.invoice_pdfs.bucket
-    EMAIL_FROM    = var.email_from
-    DATABASE_URL  = "postgres://${var.db_username}:${var.db_password}@${aws_db_instance.main.address}:5432/${var.db_name}?sslmode=no-verify"
+    NODE_ENV                 = "production"
+    AWS_REGION               = var.aws_region
+    OTEL_SERVICE_NAME        = "muyu-worker"
+    OTEL_RESOURCE_ATTRIBUTES = "deployment.environment=workshop,service.version=${var.image_tag},cloud.provider=aws,cloud.region=${var.aws_region}"
+    SQS_QUEUE_URL            = aws_sqs_queue.invoice_pdf_jobs.url
+    S3_BUCKET                = aws_s3_bucket.invoice_pdfs.bucket
+    EMAIL_FROM               = var.email_from
+    DATABASE_URL             = "postgres://${var.db_username}:${var.db_password}@${aws_db_instance.main.address}:5432/${var.db_name}?sslmode=no-verify"
   }
 }

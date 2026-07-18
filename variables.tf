@@ -81,6 +81,22 @@ variable "image_tag" {
   type        = string
 }
 
+variable "otel_collector_image" {
+  default     = "otel/opentelemetry-collector-contrib:0.136.0"
+  description = "Pinned OpenTelemetry Collector Contrib image used by the ECS sidecars"
+  type        = string
+}
+
+variable "grafana_otlp_endpoint" {
+  description = "Grafana Cloud OTLP/HTTP endpoint for the ADOT sidecars"
+  type        = string
+}
+
+variable "grafana_otlp_username" {
+  description = "Grafana Cloud OTLP username or instance ID for the ADOT sidecars"
+  type        = string
+}
+
 # Selects the verified SES address used to send generated invoices.
 variable "email_from" {
   description = "Verified SES sender used by the invoice worker"
@@ -113,4 +129,9 @@ variable "db_password" {
   description = "Master password for the RDS PostgreSQL server"
   type        = string
   sensitive   = true
+}
+
+variable "domain" {
+  description = "Domain name for the public hosted zone"
+  type        = string
 }

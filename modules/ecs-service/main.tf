@@ -29,6 +29,23 @@ resource "aws_iam_role_policy_attachment" "execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Lets ECS inject the collector configuration and Grafana token into the sidecar.
+resource "aws_iam_role_policy" "collector_ssm" {
+  count = var.otel_collector == null ? 0 : 1
+
+  name = "${var.name_prefix}-${var.service_name}-collector-ssm-policy"
+  role = aws_iam_role.execution.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ssm:GetParameters"]
+      Resource = [var.otel_collector.config_parameter_arn, var.otel_collector.token_parameter_arn]
+    }]
+  })
+}
+
 # Defines permissions available to code running inside the container.
 resource "aws_iam_role" "task" {
   name = "${var.name_prefix}-${var.service_name}-task-role"
@@ -125,7 +142,7 @@ resource "aws_ecs_task_definition" "this" {
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
-  container_definitions = jsonencode([
+  container_definitions = jsonencode(concat([
     merge({
       name      = var.container_name
       image     = var.image
@@ -148,8 +165,30 @@ resource "aws_ecs_task_definition" "this" {
           awslogs-stream-prefix = var.service_name
         }
       }
-    }, length(var.container_command) > 0 ? { command = var.container_command } : {})
-  ])
+      }, length(var.container_command) > 0 ? { command = var.container_command } : {}, var.otel_collector == null ? {} : {
+      dependsOn = [{
+        containerName = "otel-collector"
+        condition     = "START"
+      }]
+    })
+    ], var.otel_collector == null ? [] : [{
+      name      = "otel-collector"
+      image     = var.otel_collector.image
+      essential = false
+      command   = ["--config=env:OTELCOL_CONFIG_CONTENT"]
+
+      environment = [
+        { name = "GRAFANA_OTLP_ENDPOINT", value = var.otel_collector.grafana_otlp_endpoint },
+        { name = "GRAFANA_OTLP_USERNAME", value = var.otel_collector.grafana_otlp_username },
+        { name = "OTEL_SERVICE_NAME", value = var.otel_collector.otel_service_name },
+        { name = "METRICS_ENDPOINT", value = var.otel_collector.metrics_endpoint },
+      ]
+
+      secrets = [
+        { name = "OTELCOL_CONFIG_CONTENT", valueFrom = var.otel_collector.config_parameter_arn },
+        { name = "GRAFANA_OTLP_TOKEN", valueFrom = var.otel_collector.token_parameter_arn },
+      ]
+  }]))
 }
 
 # Keeps the requested number of Fargate tasks running behind the target group.
@@ -180,7 +219,7 @@ resource "aws_ecs_service" "this" {
     }
   }
 
-  depends_on = [aws_lb_listener_rule.this]
+  depends_on = [aws_lb_listener_rule.this, aws_iam_role_policy.collector_ssm]
 }
 
 # Reads the configured AWS region for the CloudWatch log driver.

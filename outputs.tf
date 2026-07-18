@@ -19,10 +19,12 @@ output "rds_endpoint" {
   value = aws_db_instance.main.endpoint
 }
 
-output "ecr_repo_url" {
-  value = aws_ecr_repository.main.repository_url
+output "alb_dns_name" {
+  value = "https://${var.domain}"
 }
 
-output "alb_dns_name" {
-  value = module.cluster.alb_dns_name
+output "name_servers" {
+  value = {
+    (split(".", var.domain)[0]) = aws_route53_zone.domain.name_servers
+  }
 }

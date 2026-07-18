@@ -12,3 +12,8 @@ variable "public_subnet_ids" {
   description = "Public subnet IDs used to place the Application Load Balancer"
   type        = list(string)
 }
+
+variable "certificate_arn" {
+  description = "ARN of the ACM certificate used by the HTTPS listener"
+  type        = string
+}
